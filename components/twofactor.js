@@ -157,3 +157,102 @@ SteamCommunity.prototype.disableTwoFactor = function(revocationCode, callback) {
 		}, "steamcommunity");
 	});
 };
+
+SteamCommunity.prototype.resetTwoFactor = function(phone, callback) {
+	var self = this;
+
+	self.httpRequestPost({
+		"uri": "https://steamcommunity.com/login/getresetoptions/",
+		"form": {
+			"donotcache": Date.now()
+		},
+		"json": true
+	}, (err, res, body) => {
+		if (err) {
+			callback(err);
+			return;
+		}
+
+		if (body.success && body.success != SteamCommunity.EResult.OK) {
+			let err = new Error(body.message || SteamCommunity.EResult[body.success]);
+			err.eresult = err.code = body.success;
+			callback(err);
+			return;
+		}
+
+		if (!body.options || !body.options.sms || !body.options.sms.allowed) {
+			callback(new Error("Malformed response"));
+			return;
+		}
+
+		let lastDigits = body.options.sms.last_digits;
+
+		console.log(body.options.sms);
+		console.log(phone);
+		if (phone.endsWith(lastDigits)) {
+			self.httpRequestPost({
+				"uri": "https://steamcommunity.com/login/startremovetwofactor/",
+				"form": {
+					"donotcache": Date.now()
+				},
+				"json": true
+			}, (err, res, body) => {
+				if (err) {
+					callback(err);
+					return;
+				}
+
+				if (body.success && body.success != SteamCommunity.EResult.OK) {
+					let err = new Error(body.message || SteamCommunity.EResult[body.success]);
+					err.eresult = err.code = body.success;
+					callback(err);
+					return;
+				}
+
+				callback(null, lastDigits);
+			}, "steamcommunity");
+		} else {
+			callback(new Error("Phone number doesn't match"));
+		}
+	}, "steamcommunity");
+};
+
+SteamCommunity.prototype.finalizeResetTwoFactor = function(smscode, callback) {
+	var self = this;
+
+	self.httpRequestPost({
+		"uri": "https://steamcommunity.com/login/removetwofactor/",
+		"form": {
+			"donotcache": Date.now(),
+			"smscode": smscode,
+			"reset": 1
+		},
+		"json": true
+	}, (err, res, body) => {
+		if (err) {
+			callback(err);
+			return;
+		}
+
+		if (body.success && body.success != SteamCommunity.EResult.OK) {
+			let err = new Error(body.message || SteamCommunity.EResult[body.success]);
+			err.eresult = err.code = body.success;
+			callback(err);
+			return;
+		}
+
+		if (!body.success) {
+			console.log(body);
+			callback(new Error("Failed"));
+			return;
+		}
+
+		if (!body.replacement_token) {
+			callback(new Error("Malformed response"));
+			return;
+		}
+
+		let replacement_token = Buffer.from(body.replacement_token, 'base64').toString();
+		callback(null, JSON.parse(replacement_token));
+	}, "steamcommunity");
+};
