@@ -186,3 +186,77 @@ function resolveVanityURL(vanityURL, callback) {
 		callback(null, {"vanityURL": vanityURL, "steamID": match[1]});
 	});
 }
+
+SteamCommunity.prototype.getLastItemDrop = function(options, callback) {
+	if (typeof options === 'function') {
+		callback = options;
+		options = {};
+	}
+
+	let qs = "?l=english";
+	if (options.startTime) {
+		if (options.startTime instanceof Date) {
+			options.startTime = Math.floor(options.startTime.getTime() / 1000);
+		}
+
+		qs += "&start_time=" + options.startTime;
+	}
+
+	this._myProfile("inventoryhistory" + qs, null, function(err, response, body) {
+		if (err) {
+			callback(err);
+			return;
+		}
+
+		let drop = {};
+
+		let $ = Cheerio.load(body);
+		if (!$('.inventory_history_pagingrow').html()) {
+			callback(new Error("Malformed page: no paging row found"));
+			return;
+		}
+
+		let trades = $('.tradehistoryrow');
+
+		for (let i = 0; i < trades.length; i++) {
+			let trade = $(trades[i]);
+
+			let eventDescription = trade.find('.tradehistory_event_description').text().trim();
+			if (eventDescription !== "Got an item drop" && i < trades.length - 1) {
+				continue;
+			}
+
+
+			let timeMatch = trade.find('.tradehistory_timestamp').html().match(/(\d+):(\d+)(am|pm)/);
+			if (timeMatch[1] == 12 && timeMatch[3] == 'am') {
+				timeMatch[1] = 0;
+			}
+
+			if (timeMatch[1] < 12 && timeMatch[3] == 'pm') {
+				timeMatch[1] = parseInt(timeMatch[1], 10) + 12;
+			}
+
+			let time = (timeMatch[1] < 10 ? '0' : '') + timeMatch[1] + ':' + timeMatch[2] + ':00';
+			let date = trade.find('.tradehistory_date').contents().first().text().trim();
+			drop.date = new Date(date + ' ' + time + ' UTC');
+
+			if (eventDescription !== "Got an item drop" && i === trades.length - 1) {
+				options.startTime = drop.date;
+				continue;
+			}
+
+			let items = trade.find('.history_item');
+			for (let j = 0; j < items.length; j++) {
+				let item = $(items[j]);
+				drop.item = item.find('.history_item_name').text().trim();
+			}
+			break;
+		}
+
+		if (typeof drop.item === "undefined") {
+			this.getLastItemDrop(options, callback);
+		} else {
+			callback(null, drop);
+		}
+	}, "steamcommunity");
+};
