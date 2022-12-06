@@ -254,7 +254,11 @@ SteamCommunity.prototype.getLastItemDrop = function(options, callback) {
 		}
 
 		if (typeof drop.item === "undefined") {
-			this.getLastItemDrop(options, callback);
+			if (trades.length > 0) {
+				this.getLastItemDrop(options, callback);
+			} else {
+				callback(null, null);
+			}
 		} else {
 			callback(null, drop);
 		}
