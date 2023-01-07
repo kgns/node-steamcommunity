@@ -73,7 +73,7 @@ SteamCommunity.prototype.finalizeTwoFactor = function(secret, activationCode, ca
 	});
 
 	function finalize(token) {
-		var code = SteamTotp.generateAuthCode(secret, diff);
+		var code = SteamTotp.getAuthCode(secret, diff);
 
 		self.httpRequestPost({
 			"uri": "https://api.steampowered.com/ITwoFactorService/FinalizeAddAuthenticator/v1/",
