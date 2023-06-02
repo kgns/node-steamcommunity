@@ -256,3 +256,29 @@ SteamCommunity.prototype.finalizeResetTwoFactor = function(smscode, callback) {
 		callback(null, JSON.parse(replacement_token));
 	}, "steamcommunity");
 };
+
+SteamCommunity.prototype.addPhoneNumber = function(number, callback) {
+	var self = this;
+
+	self.httpRequestPost({
+		"uri": "https://steamcommunity.com/steamguard/phoneajax",
+		"form": {
+			"op": "add_phone_number",
+			"arg": number,
+			"sessionid": this.getSessionID()
+		}
+	}, function(err, response, body) {
+		if (err) {
+			callback(err);
+			return;
+		}
+
+		if(!body.success) {
+			console.log(body);
+			callback(new Error("Failed"));
+			return;
+		}
+
+		callback(null);
+	}, "steamcommunity");
+};
