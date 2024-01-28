@@ -175,11 +175,11 @@ SteamCommunity.prototype.postGroupAnnouncement = function(gid, headline, content
 		"languages[0][headline]": headline,
 		"languages[0][body]": content
 	};
-	
+
 	if(hidden) {
 		form.is_hidden = "is_hidden"
 	}
-	
+
 	this.httpRequestPost({
 		"uri": "https://steamcommunity.com/gid/" + gid.getSteamID64() + "/announcements",
 		form
@@ -669,7 +669,7 @@ SteamCommunity.prototype.respondToGroupJoinRequests = function(gid, steamIDs, ap
 	if (typeof gid === 'string') {
 		gid = new SteamID(gid);
 	}
-	
+
 	var rgAccounts = (!Array.isArray(steamIDs) ? [steamIDs] : steamIDs).map(sid => sid.toString());
 
 	this.httpRequestPost({
@@ -728,5 +728,71 @@ SteamCommunity.prototype.respondToAllGroupJoinRequests = function(gid, approve, 
 		} else {
 			callback(null);
 		}
+	}, "steamcommunity");
+};
+
+/**
+ * Follows a curator page
+ * @param {string|number} curatorId - ID of the curator (not a SteamID)
+ * @param {function} callback - Takes only an Error object/null as the first argument
+ */
+SteamCommunity.prototype.followCurator = function(curatorId, callback) {
+	this.httpRequestPost({
+		"uri": "https://store.steampowered.com/curators/ajaxfollow",
+		"form": {
+			"clanid": curatorId,
+			"sessionid": this.getSessionID(),
+			"follow": 1
+		},
+		"json": true
+	}, (err, res, body) => {
+		if (!callback) {
+			return;
+		}
+
+		if (err) {
+			callback(err);
+			return;
+		}
+
+		if (body.success && body.success.success != SteamCommunity.EResult.OK) {
+			callback(Helpers.eresultError(body.success.success));
+			return;
+		}
+
+		callback(null);
+	}, "steamcommunity");
+};
+
+/**
+ * Unfollows a curator page
+ * @param {string|number} curatorId - ID of the curator (not a SteamID)
+ * @param {function} callback - Takes only an Error object/null as the first argument
+ */
+SteamCommunity.prototype.unfollowCurator = function(curatorId, callback) {
+	this.httpRequestPost({
+		"uri": "https://store.steampowered.com/curators/ajaxfollow",
+		"form": {
+			"clanid": curatorId,
+			"sessionid": this.getSessionID(),
+			"follow": 0
+		},
+		"json": true
+	}, (err, res, body) => {
+		if (!callback) {
+			return;
+		}
+
+		if (err) {
+			callback(err);
+			return;
+		}
+
+		if (body.success && body.success.success != SteamCommunity.EResult.OK) {
+			callback(Helpers.eresultError(body.success.success));
+			return;
+		}
+
+		callback(null);
 	}, "steamcommunity");
 };

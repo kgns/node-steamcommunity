@@ -1,73 +1,48 @@
 // If you aren't running this script inside of the repository, replace the following line with:
 // const SteamCommunity = require('steamcommunity');
 const SteamCommunity = require('../index.js');
+const SteamTotp = require('steam-totp');
 const ReadLine = require('readline');
 
+let g_AbortPromptFunc = null;
+
 let community = new SteamCommunity();
-let rl = ReadLine.createInterface({
-	input: process.stdin,
-	output: process.stdout
-});
 
-rl.question('Username: ', (accountName) => {
-	rl.question('Password: ', (password) => {
-		rl.question('Two-Factor Auth Code: ', (authCode) =>{
-			rl.question('Revocation Code: R', (rCode) => {
-				doLogin(accountName, password, authCode, '', rCode);
-			});
-		});
-	});
-});
+main();
+async function main() {
+	let accountName = await promptAsync('Username: ');
+	let password = await promptAsync('Password (hidden): ', true);
 
-function doLogin(accountName, password, authCode, captcha, rCode) {
+	attemptLogin(accountName, password);
+}
+
+function attemptLogin(accountName, password, twoFactorCode) {
 	community.login({
-		accountName: accountName,
-		password: password,
-		twoFactorCode: authCode,
-		captcha: captcha
-	}, (err, sessionID, cookies, steamguard) => {
+		accountName,
+		password,
+		twoFactorCode,
+		disableMobile: false
+	}, async (err) => {
+		if (err && err.message == 'SteamGuardMobile') {
+			let code = await promptAsync('Steam Guard App Code OR Shared Secret: ');
+			if (code.length > 5) {
+				// If we were provided a shared secret, turn it into a code.
+				code = SteamTotp.getAuthCode(code);
+			}
+			attemptLogin(accountName, password, code);
+			return;
+		}
+
 		if (err) {
-			if (err.message == 'SteamGuard') {
-				console.log('This account does not have two-factor authentication enabled.');
-				process.exit();
-				return;
-			}
-
-			if (err.message == 'CAPTCHA') {
-				console.log(err.captchaurl);
-				rl.question('CAPTCHA: ', (captchaInput) => {
-					doLogin(accountName, password, authCode, captchaInput);
-				});
-
-				return;
-			}
-
-			console.log(err);
-			process.exit();
-			return;
+			throw err;
 		}
 
-		console.log('Logged on!');
-
-		if (community.mobileAccessToken) {
-			// If we already have a mobile access token, we don't need to prompt for one.
-			doRevoke(rCode);
-			return;
-		}
-
-		console.log('You need to provide a mobile app access token to continue.');
-		console.log('You can generate one using steam-session (https://www.npmjs.com/package/steam-session).');
-		console.log('The access token needs to be generated using EAuthTokenPlatformType.MobileApp.');
-		console.log('Make sure you provide an *ACCESS* token, not a refresh token.');
-
-		rl.question('Access Token: ', (accessToken) => {
-			community.setMobileAppAccessToken(accessToken);
-			doRevoke(rCode);
-		});
+		doRevoke();
 	});
 }
 
-function doRevoke(rCode) {
+async function doRevoke() {
+	let rCode = await promptAsync('Revocation Code: R');
 	community.disableTwoFactor('R' + rCode, (err) => {
 		if (err) {
 			console.log(err);
@@ -78,4 +53,46 @@ function doRevoke(rCode) {
 		console.log('Two-factor authentication disabled!');
 		process.exit();
 	});
+}
+
+// Nothing interesting below here, just code for prompting for input from the console.
+
+function promptAsync(question, sensitiveInput = false) {
+	return new Promise((resolve) => {
+		let rl = ReadLine.createInterface({
+			input: process.stdin,
+			output: sensitiveInput ? null : process.stdout,
+			terminal: true
+		});
+
+		g_AbortPromptFunc = () => {
+			rl.close();
+			resolve('');
+		};
+
+		if (sensitiveInput) {
+			// We have to write the question manually if we didn't give readline an output stream
+			process.stdout.write(question);
+		}
+
+		rl.question(question, (result) => {
+			if (sensitiveInput) {
+				// We have to manually print a newline
+				process.stdout.write('\n');
+			}
+
+			g_AbortPromptFunc = null;
+			rl.close();
+			resolve(result);
+		});
+	});
+}
+
+function abortPrompt() {
+	if (!g_AbortPromptFunc) {
+		return;
+	}
+
+	g_AbortPromptFunc();
+	process.stdout.write('\n');
 }

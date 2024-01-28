@@ -296,6 +296,66 @@ SteamCommunity.prototype.inviteUserToGroup = function(userID, groupID, callback)
 	}, "steamcommunity");
 };
 
+SteamCommunity.prototype.followUser = function(userID, callback) {
+	if(typeof userID === 'string') {
+		userID = new SteamID(userID);
+	}
+
+	this.httpRequestPost({
+		"uri": `https://steamcommunity.com/profiles/${userID.toString()}/followuser/`,
+		"form": {
+			"sessionid": this.getSessionID(),
+		},
+		"json": true
+	}, function(err, response, body) {
+		if (!callback) {
+			return;
+		}
+
+		if (err) {
+			callback(err);
+			return;
+		}
+
+		if (body.success && body.success != SteamCommunity.EResult.OK) {
+			callback(Helpers.eresultError(body.success));
+			return;
+		}
+
+		callback(null);
+	}, "steamcommunity");
+};
+
+SteamCommunity.prototype.unfollowUser = function(userID, callback) {
+	if(typeof userID === 'string') {
+		userID = new SteamID(userID);
+	}
+
+	this.httpRequestPost({
+		"uri": `https://steamcommunity.com/profiles/${userID.toString()}/unfollowuser/`,
+		"form": {
+			"sessionid": this.getSessionID(),
+		},
+		"json": true
+	}, function(err, response, body) {
+		if (!callback) {
+			return;
+		}
+
+		if (err) {
+			callback(err);
+			return;
+		}
+
+		if (body.success && body.success != SteamCommunity.EResult.OK) {
+			callback(Helpers.eresultError(body.success));
+			return;
+		}
+
+		callback(null);
+	}, "steamcommunity");
+};
+
 SteamCommunity.prototype.getUserAliases = function(userID, callback) {
 	if (typeof userID === 'string') {
 		userID = new SteamID(userID);
@@ -385,18 +445,7 @@ SteamCommunity.prototype.getUserInventoryContexts = function(userID, callback) {
 
 		var match = body.match(/var g_rgAppContextData = ([^\n]+);\r?\n/);
 		if (!match) {
-			var errorMessage = "Malformed response";
-
-			if(body.match(/0 items in their inventory\./)){
-				callback(null, {});
-				return;
-			}else if(body.match(/inventory is currently private\./)){
-				errorMessage = "Private inventory";
-			}else if(body.match(/profile\_private\_info/)){
-				errorMessage = "Private profile";
-			}
-
-			callback(new Error(errorMessage));
+			callback(new Error('Malformed response'));
 			return;
 		}
 
@@ -406,6 +455,21 @@ SteamCommunity.prototype.getUserInventoryContexts = function(userID, callback) {
 		} catch(e) {
 			callback(new Error("Malformed response"));
 			return;
+		}
+
+		if (Object.keys(data).length == 0) {
+			if (body.match(/inventory is currently private\./)) {
+				callback(new Error('Private inventory'));
+				return;
+			}
+
+			if (body.match(/profile_private_info/)) {
+				callback(new Error('Private profile'));
+				return;
+			}
+
+			// If they truly have no items in their inventory, Steam will send g_rgAppContextData as [] instead of {}.
+			data = {};
 		}
 
 		callback(null, data);
@@ -472,7 +536,7 @@ SteamCommunity.prototype.getUserInventory = function(userID, appID, contextID, t
 					continue;
 				}
 
-				currency.push(new CEconItem(body.rgInventory[i], body.rgDescriptions, contextID));
+				currency.push(new CEconItem(body.rgCurrency[i], body.rgDescriptions, contextID));
 			}
 
 			if (body.more) {

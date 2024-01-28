@@ -6,72 +6,36 @@ const FS = require('fs');
 
 const EResult = SteamCommunity.EResult;
 
+let g_AbortPromptFunc = null;
+
 let community = new SteamCommunity();
-let rl = ReadLine.createInterface({
-	input: process.stdin,
-	output: process.stdout
-});
 
-rl.question('Username: ', (accountName) => {
-	rl.question('Password: ', (password) => {
-		doLogin(accountName, password);
-	});
-});
+main();
+async function main() {
+	let accountName = await promptAsync('Username: ');
+	let password = await promptAsync('Password (hidden): ', true);
 
-function doLogin(accountName, password, authCode, captcha) {
+	attemptLogin(accountName, password);
+}
+
+function attemptLogin(accountName, password, authCode) {
 	community.login({
-		accountName: accountName,
-		password: password,
-		authCode: authCode,
-		captcha: captcha
-	}, (err, sessionID, cookies, steamguard) => {
+		accountName,
+		password,
+		authCode,
+		disableMobile: false
+	}, async (err) => {
+		if (err && err.message == 'SteamGuard') {
+			let code = await promptAsync('Steam Guard Email Code: ');
+			attemptLogin(accountName, password, code);
+			return;
+		}
+
 		if (err) {
-			if (err.message == 'SteamGuardMobile') {
-				console.log('This account already has two-factor authentication enabled.');
-				process.exit();
-				return;
-			}
-
-			if (err.message == 'SteamGuard') {
-				console.log(`An email has been sent to your address at ${err.emaildomain}`);
-				rl.question('Steam Guard Code: ',  (code) => {
-					doLogin(accountName, password, code);
-				});
-
-				return;
-			}
-
-			if (err.message == 'CAPTCHA') {
-				console.log(err.captchaurl);
-				rl.question('CAPTCHA: ', (captchaInput) => {
-					doLogin(accountName, password, authCode, captchaInput);
-				});
-
-				return;
-			}
-
-			console.log(err);
-			process.exit();
-			return;
+			throw err;
 		}
 
-		console.log('Logged on!');
-
-		if (community.mobileAccessToken) {
-			// If we already have a mobile access token, we don't need to prompt for one.
-			doSetup();
-			return;
-		}
-
-		console.log('You need to provide a mobile app access token to continue.');
-		console.log('You can generate one using steam-session (https://www.npmjs.com/package/steam-session).');
-		console.log('The access token needs to be generated using EAuthTokenPlatformType.MobileApp.');
-		console.log('Make sure you provide an *ACCESS* token, not a refresh token.');
-
-		rl.question('Access Token: ', (accessToken) => {
-			community.setMobileAppAccessToken(accessToken);
-			doSetup();
-		});
+		doSetup();
 	});
 }
 
@@ -110,22 +74,70 @@ function doSetup() {
 	});
 }
 
-function promptActivationCode(response) {
-	rl.question('SMS Code: ', (smsCode) => {
-		community.finalizeTwoFactor(response.shared_secret, smsCode, (err) => {
-			if (err) {
-				if (err.message == 'Invalid activation code') {
-					console.log(err);
-					promptActivationCode(response);
-					return;
-				}
+async function promptActivationCode(response) {
+	if (response.phone_number_hint) {
+		console.log(`An activation code has been sent to your phone ending in ${response.phone_number_hint}.`);
+	} else if (response.confirm_type == 3) {
+		// Exact meaning of confirm_type is unknown, but 3 appears to be email code
+		console.log('An activation code has been sent to your email.');
+	}
 
+	let smsCode = await promptAsync('Activation Code: ');
+	community.finalizeTwoFactor(response.shared_secret, smsCode, (err) => {
+		if (err) {
+			if (err.message == 'Invalid activation code') {
 				console.log(err);
-			} else {
-				console.log('Two-factor authentication enabled!');
+				promptActivationCode(response);
+				return;
 			}
 
-			process.exit();
+			console.log(err);
+		} else {
+			console.log('Two-factor authentication enabled!');
+		}
+
+		process.exit();
+	});
+}
+
+// Nothing interesting below here, just code for prompting for input from the console.
+
+function promptAsync(question, sensitiveInput = false) {
+	return new Promise((resolve) => {
+		let rl = ReadLine.createInterface({
+			input: process.stdin,
+			output: sensitiveInput ? null : process.stdout,
+			terminal: true
+		});
+
+		g_AbortPromptFunc = () => {
+			rl.close();
+			resolve('');
+		};
+
+		if (sensitiveInput) {
+			// We have to write the question manually if we didn't give readline an output stream
+			process.stdout.write(question);
+		}
+
+		rl.question(question, (result) => {
+			if (sensitiveInput) {
+				// We have to manually print a newline
+				process.stdout.write('\n');
+			}
+
+			g_AbortPromptFunc = null;
+			rl.close();
+			resolve(result);
 		});
 	});
+}
+
+function abortPrompt() {
+	if (!g_AbortPromptFunc) {
+		return;
+	}
+
+	g_AbortPromptFunc();
+	process.stdout.write('\n');
 }
