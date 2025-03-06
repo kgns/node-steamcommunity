@@ -590,7 +590,7 @@ SteamCommunity.prototype.getUserInventoryContents = function(userID, appID, cont
 			},
 			"qs": {
 				"l": language, // Default language
-				"count": 2000, // Max items per 'page'
+				"count": 5000, // Max items per 'page'
 				"start_assetid": start
 			},
 			"json": true
@@ -626,6 +626,13 @@ SteamCommunity.prototype.getUserInventoryContents = function(userID, appID, cont
 			if (body && body.success && body.total_inventory_count === 0) {
 				// Empty inventory
 				callback(null, [], [], 0);
+				return;
+			}
+
+			if (appID == 730 && body && body.success && !body.assets) {
+				// CS inventory has no visible items. We need a special case for this because Valve is incapable of
+				// doing anything not dumb.
+				callback(null, [], [], body.total_inventory_count);
 				return;
 			}
 
